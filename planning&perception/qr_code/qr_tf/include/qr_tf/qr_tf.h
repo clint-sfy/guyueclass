@@ -61,13 +61,13 @@ private:
     Size m_markerSize;
     vector<Point2f> m_markerCorners2d;  // marker's 4 corners projection
     vector<Point3f> m_markerCorners3d;
-    Mat m_camMat;
-    Mat m_distCoeff;
-    double unit_x;
-    double unit_y;
+    Mat m_camMat;    // 内参矩阵
+    Mat m_distCoeff; // 畸变矩阵
+    double unit_x;   // 相机内参 f_x
+    double unit_y;   // 相机内参 f_y
 
-    string _calibFile;       //cameta calibration file
-    ofstream sampleRead;     //save the results
+    string _calibFile;       //存取相机标定的xml文件
+    ofstream sampleRead;     //保存 x坐标  y坐标  角度
     Scalar lineColor;
 
     bool run_task;

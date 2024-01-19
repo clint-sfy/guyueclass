@@ -1,35 +1,42 @@
 #include "qr_tf/qr_tf.h"
-
+// 保证每次随机都是一样的
 RNG rng(12345);
 #define CAMERAMAT "camera_matrix"
 #define DISTCOEFF "distortion_coefficients"
 
+//这段代码是一个名为ImageConverter的类的构造函数。该类通过image_transport订阅图像话题，并发布图像话题，同时还订阅了名为task_switch的话题。
 ImageConverter::ImageConverter(ros::NodeHandle nh,const string& calibFile,const string& saveFile)
-	: it(nh),
+	: it(nh),  //image_transport::ImageTransport it;
 	_calibFile(calibFile),
   sampleRead(saveFile.c_str()),
   lineColor(255, 255, 255),
   run_task(true)
 {
-	 readParameters();  //when it should be used.
+	 readParameters();  //读取相机矩阵的内参
 
-    //使用image_transport订阅图像话题“in” 和 发布图像话题“out” /camera/rgb/image_raw
+    // 使用image_transport订阅图像话题“in” 和 发布图像话题“out” /camera/rgb/image_raw
+    //image_transport::Subscriber image_sub
     image_sub=it.subscribe("/image_raw",1,&ImageConverter::imageCb,this);
     image_pub=it.advertise("qr_navig",1);
 
+    // ros::Subscriber task_switch_sub_
     task_switch_sub_ = nh.subscribe("/task_switch", 1, &ImageConverter::TaskSwitchCallback, this );
 
 }
 
+// 读取内参矩阵
 void ImageConverter::readParameters()
 {
     readCalibPara(_calibFile.c_str());
     //it.param("image_sub", image_sub, string("/usb_cam/image_raw"));      //topic name
 }
 
-
+//这段代码实现了一个回调函数ImageConverter::TaskSwitchCallback，该函数用于处理名为task_switch话题的消息。
+//在这段代码中，函数首先检查传入的消息是否与预期的消息匹配，接着根据消息的内容来设置run_task变量的值。
 void ImageConverter::TaskSwitchCallback(const std_msgs::HeaderPtr &task_switch_msg)
 {
+    //在ROS中，std_msgs::HeaderPtr是指向std_msgs::Header消息类型的智能指针。
+    //std_msgs::Header是一个ROS中常用的消息类型，它包含了一些用于标识ROS消息的元数据，比如时间戳、序列号、坐标系的信息等。
     if ( task_switch_msg->frame_id == "qr_navig" || task_switch_msg->frame_id.empty() )
     {
         if ( task_switch_msg->seq == 0 )
@@ -43,6 +50,7 @@ void ImageConverter::TaskSwitchCallback(const std_msgs::HeaderPtr &task_switch_m
     }
 }
 
+// 将内参矩阵和畸变矩阵弄成全局变量   焦距也是
 int ImageConverter::readCalibPara(string filename)
 {
     cv::FileStorage fs(filename,cv::FileStorage::READ);
@@ -51,14 +59,17 @@ int ImageConverter::readCalibPara(string filename)
         LERROR("Invalid calibration filename.");
         return 0;
     }
+    // Mat m_camMat
     fs[CAMERAMAT]>>m_camMat;
     fs[DISTCOEFF]>>m_distCoeff;
 
+    //通过at函数访问了m_camMat的第一行第一列的元素，并将其转换为double类型
     unit_x = m_camMat.at<double>(0, 0); //if calibrated right, the effect will be good.
     unit_y = m_camMat.at<double>(1, 1);
 
     //cout <<  "dx= " << unit_x << endl << "dy= "<< unit_y<<endl;
 }
+
 
 void ImageConverter::ProcessFrame(cv_bridge::CvImagePtr cv_ptr)
 {
@@ -71,6 +82,7 @@ void ImageConverter::ProcessFrame(cv_bridge::CvImagePtr cv_ptr)
 	//undistort(img, undistor_img, m_camMat, m_distCoeff);
     //img coordinate
     lineColor = Scalar(0, 255, 0);
+    // 表示图像的正中心点  表示中心点向上偏移200个像素的位置
     DrawArrow(undistor_img, Point(img.cols/2, img.rows/2), Point(img.cols/2, img.rows/2 - 200), 25, 30, lineColor, 2, CV_AA);
 
     QRDecode(undistor_img);
@@ -113,7 +125,7 @@ void ImageConverter::imageCb(const sensor_msgs::ImageConstPtr& msg)
     image_pub.publish(cv_ptr->toImageMsg());
 }
 
-
+// 用于在给定图像上绘制箭头。
 void ImageConverter::DrawArrow(cv::Mat& img, cv::Point pStart, cv::Point pEnd, int len, int alpha,
      cv::Scalar& color, int thickness, int lineType)
 {
@@ -136,16 +148,20 @@ void ImageConverter::QRDecode(Mat img)
     Mat frame, img_gray;
     //Define a scanner
     ImageScanner scanner;
+    // 在这里，ZBAR_CFG_ENABLE 的参数设置为 1，表示启用了 ZBar 扫描器
     scanner.set_config(ZBAR_NONE, ZBAR_CFG_ENABLE, 1);
 
     frame = img.clone();
+    // 转化为灰度图
     cvtColor(img, img_gray, CV_BGR2GRAY);
 
     int width = img_gray.cols;
     int height = img_gray.rows;
     uchar *raw = (uchar*)(img_gray.data);
 
-    //Wrap image data
+    //Wrap image data  通过实例化 Image 对象，可以将图像数据传递给 ZBar 扫描器进行处理和分析
+    //是图像的格式，这里指的是灰度图像格式，Y800 表示每个像素用8位来表示亮度，没有颜色信息
+    //raw 是指向图像数据的指针，这里采用了非常底层的表示方式，直接使用了图像数据的数组指针
     Image image(width, height, "Y800", raw, width*height);
 
     //scan the image for barcodes
@@ -153,7 +169,7 @@ void ImageConverter::QRDecode(Mat img)
 
     if(image.symbol_begin() == image.symbol_end())
         LERROR("Failed to check qr code.Please ensure the image is right!");
-    //Extract results
+    //Extract results  在 ZBar 库中，Image::SymbolIterator 是一种迭代器
     for(Image::SymbolIterator symbol = image.symbol_begin(); symbol != image.symbol_end(); ++ symbol)
     {
        
@@ -161,8 +177,8 @@ void ImageConverter::QRDecode(Mat img)
       LINFO("type:", symbol->get_type_name());
       LINFO("decoded:", symbol->get_data());
 
-  	  vector<Point> vp;
-      vector<Point2f> pointBuf;
+  	  vector<Point> vp;  // 存储了检测到的二维码的位置点
+      vector<Point2f> pointBuf;  //缓存区
   	  int n = symbol->get_location_size();
   	  for (int i = 0; i < n; i++)
   	  {
@@ -173,13 +189,15 @@ void ImageConverter::QRDecode(Mat img)
   	  for (vector<Point2f>::iterator it = pointBuf.begin(); it != pointBuf.end(); it++)
   	  {
   	  	 //cout << "Points:" << *it << endl;
-           circle(img, *it, 3, Scalar(255, 0, 0), -1, 8);
+         //绘制了一个半径为 3 的圆  蓝色
+         circle(img, *it, 3, Scalar(255, 0, 0), -1, 8);
   	  }
 
       // Draw location of the symbols found
       if (symbol->get_location_size() == 4)
 	  {
             LINFO("qr_code detected successfully.");
+            // 把二维码给框出来
     		line(img, Point(symbol->get_location_x(0), symbol->get_location_y(0)), Point(symbol->get_location_x(1), symbol->get_location_y(1)), Scalar(0, 255, 0), 2, 8, 0);
     		line(img, Point(symbol->get_location_x(1), symbol->get_location_y(1)), Point(symbol->get_location_x(2), symbol->get_location_y(2)), Scalar(0, 255, 0), 2, 8, 0);
     		line(img, Point(symbol->get_location_x(2), symbol->get_location_y(2)), Point(symbol->get_location_x(3), symbol->get_location_y(3)), Scalar(0, 255, 0), 2, 8, 0);
@@ -207,11 +225,11 @@ void ImageConverter::QRDecode(Mat img)
             double centerY = (y0 + y3)/2;
 
             //qr coordinate
-            lineColor = Scalar(0, 0, 255);
+            lineColor = Scalar(0, 0, 255);  // 红色
             DrawArrow(img, Point(crossX, crossY), Point(centerX, centerY), 25, 30, lineColor, 2, CV_AA);
             DrawArrow(img, Point(crossX, crossY), Point(crossX, crossY- 200), 25, 30, lineColor, 2, CV_AA);
             //L
-            lineColor = Scalar(255, 0, 0);
+            lineColor = Scalar(255, 0, 0);  // 蓝色
             DrawArrow(img, Point(crossX, crossY), Point(img.cols/2, img.rows/2), 25, 30, lineColor, 2, CV_AA);
             double L = sqrt(pow(crossX - img.cols/2, 2) + pow(crossY - img.rows/2, 2));
             //cout << "length = " << L << endl;
@@ -228,8 +246,8 @@ void ImageConverter::QRDecode(Mat img)
             double x = L * cos(a2);
             double y = L * sin(a2);
 
-            double qr_tf_x = x / unit_x;
-            double qr_tf_y = y / unit_y;
+            double qr_tf_x = x / unit_x;   // 焦距
+            double qr_tf_y = y / unit_y;   // 焦距
             double qr_tf_angle = a3;
             double rot = a3 * 180 /CV_PI;
 
@@ -237,7 +255,7 @@ void ImageConverter::QRDecode(Mat img)
             LINFO("Vertical Proj:", qr_tf_y);
             LINFO("Angle:", qr_tf_angle );
             //cout << "Rotation:" << rot << endl<< endl;
-
+            // ofstream sampleRead
             sampleRead<< qr_tf_x <<" "<< qr_tf_y <<" "<< qr_tf_angle <<endl;
             //broadcast tf between qr-cam
             static tf::TransformBroadcaster br;

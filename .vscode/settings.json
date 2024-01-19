@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "algorithm": "cpp",
+        "regex": "cpp",
+        "xstring": "cpp",
+        "iosfwd": "cpp",
+        "cmath": "cpp",
+        "xlocmon": "cpp",
+        "vector": "cpp"
+    }
+}
